@@ -4,7 +4,8 @@
     "composite": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
     "lib": ["ES2022"],
-    "types": ["./worker-configuration.d.ts"]
+    "types": ["./worker-configuration.d.ts", "vite/client"]
   },
-  "include": ["src/worker", "worker-configuration.d.ts"]
+  "include": ["src/worker", "worker-configuration.d.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }
