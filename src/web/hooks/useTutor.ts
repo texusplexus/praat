@@ -4,12 +4,17 @@ import { fetchScenario, streamReply, type ChatMessage, type ScenarioSummary } fr
 export type Turn = ChatMessage & { pending?: boolean };
 export type TutorState = "loading" | "ready" | "replying" | "error";
 
+/** Optional sink that receives the reply as it streams, e.g. text-to-speech. */
+export type ReplySink = {
+  begin: () => { push: (text: string) => void; end: () => void };
+};
+
 /**
  * Holds the conversation for one scenario. The tutor's opening line is shown
  * as the first turn but is not sent to the model; the system prompt already
  * tells the model it said it.
  */
-export function useTutor(scenarioId: string) {
+export function useTutor(scenarioId: string, sink?: ReplySink) {
   const [scenario, setScenario] = useState<ScenarioSummary | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [state, setState] = useState<TutorState>("loading");
@@ -17,6 +22,8 @@ export function useTutor(scenarioId: string) {
   const historyRef = useRef<ChatMessage[]>([]);
   const queueRef = useRef<string[]>([]);
   const busyRef = useRef(false);
+  const sinkRef = useRef(sink);
+  sinkRef.current = sink;
 
   useEffect(() => {
     let cancelled = false;
@@ -48,9 +55,11 @@ export function useTutor(scenarioId: string) {
       setTurns((t) => [...t, { role: "user", content: userText }, { role: "assistant", content: "", pending: true }]);
 
       let reply = "";
+      const voice = sinkRef.current?.begin();
       try {
         await streamReply(scenarioId, history, (delta) => {
           reply += delta;
+          voice?.push(delta);
           setTurns((t) => {
             const next = t.slice();
             const last = next[next.length - 1];
@@ -60,10 +69,12 @@ export function useTutor(scenarioId: string) {
             return next;
           });
         });
+        voice?.end();
         historyRef.current = [...history, { role: "assistant", content: reply }];
         setTurns((t) => t.map((turn) => (turn.pending ? { ...turn, pending: false } : turn)));
         setState("ready");
       } catch (err) {
+        voice?.end();
         setError(err instanceof Error ? err.message : String(err));
         // Drop the failed exchange so the learner can simply try again.
         historyRef.current = history.slice(0, -1);

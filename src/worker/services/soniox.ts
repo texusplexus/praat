@@ -12,11 +12,17 @@ export type TemporaryKey = {
   expiresAt: string;
 };
 
+export type SonioxUsage = "transcribe_websocket" | "tts_rt";
+
 /**
- * Mint a short-lived Soniox key so the browser can open the STT WebSocket
+ * Mint a short-lived Soniox key so the browser can open a Soniox WebSocket
  * directly. The long-lived SONIOX_API_KEY never leaves the Worker.
  */
-export async function mintSttKey(env: Env, expiresInSeconds = 60): Promise<TemporaryKey> {
+export async function mintTemporaryKey(
+  env: Env,
+  usage: SonioxUsage,
+  expiresInSeconds = 60,
+): Promise<TemporaryKey> {
   const res = await fetch(`${SONIOX_API}/auth/temporary-api-key`, {
     method: "POST",
     headers: {
@@ -24,7 +30,7 @@ export async function mintSttKey(env: Env, expiresInSeconds = 60): Promise<Tempo
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      usage_type: "transcribe_websocket",
+      usage_type: usage,
       expires_in_seconds: expiresInSeconds,
       // A pilot conversation is at most a few minutes; cap the socket anyway.
       max_session_duration_seconds: 60 * 15,

@@ -2,12 +2,14 @@ import { Hono } from "hono";
 import { health } from "./routes/health.ts";
 import { scenarios } from "./routes/scenarios.ts";
 import { stt } from "./routes/stt.ts";
+import { tts } from "./routes/tts.ts";
 import { tutor } from "./routes/tutor.ts";
 
 const app = new Hono<{ Bindings: Env }>().basePath("/api");
 
 app.route("/health", health);
 app.route("/stt", stt);
+app.route("/tts", tts);
 app.route("/scenarios", scenarios);
 app.route("/tutor", tutor);
 
