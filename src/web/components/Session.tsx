@@ -16,14 +16,13 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
   const stt = useSonioxStt();
 
   // Half-duplex turn-taking: while the tutor speaks, feed Soniox silence so
-  // the speaker output is never transcribed as the learner.
-  const speakingRef = useRef(false);
-  speakingRef.current = tts.speaking;
+  // the speaker output is never transcribed as the learner. The mute window
+  // is wall-clock bounded, so a playback problem cannot silence the mic.
   const onMicChunk = useCallback(
     (chunk: ArrayBuffer) => {
-      stt.send(speakingRef.current ? new ArrayBuffer(chunk.byteLength) : chunk);
+      stt.send(tts.shouldMuteMic() ? new ArrayBuffer(chunk.byteLength) : chunk);
     },
-    [stt],
+    [stt, tts],
   );
   const mic = useMic(onMicChunk);
 
@@ -57,8 +56,13 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
       return;
     }
     sentCount.current = 0;
-    await tts.unlock();
-    speakOpening();
+    // Speech output is best effort; it must never stop the mic from starting.
+    try {
+      await tts.unlock();
+      speakOpening();
+    } catch (err) {
+      console.warn("tts unlock failed", err);
+    }
     try {
       await stt.connect();
       await mic.start();
@@ -112,6 +116,12 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
       {error && (
         <p role="alert" className="text-rose-300 text-sm text-center max-w-md">
           {error}
+        </p>
+      )}
+
+      {tts.speaking && (
+        <p className="text-emerald-300/80 text-xs" aria-live="polite">
+          Die tutor praat… jou mikrofoon wag.
         </p>
       )}
 

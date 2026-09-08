@@ -43,6 +43,11 @@ export function useTts(voice = DEFAULT_VOICE) {
   const [error, setError] = useState<string | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const currentRef = useRef<{ ws: WebSocket; player: PcmPlayer } | null>(null);
+  // Wall-clock deadline until which the learner's mic should be muted. Using
+  // real time (not AudioContext time) means a suspended or stalled context
+  // can never leave the mic muted indefinitely.
+  const muteUntilRef = useRef(0);
+  const shouldMuteMic = useCallback(() => performance.now() < muteUntilRef.current, []);
 
   /** Must be called from a user gesture at least once (iOS Safari). */
   const unlock = useCallback(async () => {
@@ -51,6 +56,7 @@ export function useTts(voice = DEFAULT_VOICE) {
   }, []);
 
   const stop = useCallback(() => {
+    muteUntilRef.current = 0;
     const cur = currentRef.current;
     currentRef.current = null;
     if (!cur) return;
@@ -78,13 +84,26 @@ export function useTts(voice = DEFAULT_VOICE) {
     let ready = false;
     let ws: WebSocket | null = null;
 
+    // Waiting for the first audio chunk: mute for a bounded time only.
+    muteUntilRef.current = performance.now() + 6_000;
+
     const finish = () => {
       if (currentRef.current?.player === player) {
         currentRef.current = null;
+        muteUntilRef.current = 0;
         setSpeaking(false);
       }
     };
-    const player = new PcmPlayer(context, TTS_SAMPLE_RATE, finish);
+    const player = new PcmPlayer(context, TTS_SAMPLE_RATE, () => {
+      clearTimeout(watchdog);
+      finish();
+    });
+    // Utterances are a few sentences; if playback has not finished well
+    // within the 2 minute Soniox cap, something is stuck: release the turn.
+    const watchdog = setTimeout(() => {
+      player.stop();
+      finish();
+    }, 90_000);
 
     const flush = () => {
       if (!ready || !ws || ws.readyState !== WebSocket.OPEN) return;
@@ -127,7 +146,10 @@ export function useTts(voice = DEFAULT_VOICE) {
             socket.close();
             return;
           }
-          if (msg.audio) player.enqueue(base64ToBytes(msg.audio));
+          if (msg.audio) {
+            player.enqueue(base64ToBytes(msg.audio));
+            muteUntilRef.current = performance.now() + player.scheduledSeconds * 1000 + 400;
+          }
           if (msg.audio_end || msg.terminated) {
             player.end();
             socket.close();
@@ -137,6 +159,11 @@ export function useTts(voice = DEFAULT_VOICE) {
           setError("Kon nie die stem laai nie");
           player.stop();
           finish();
+        };
+        socket.onclose = () => {
+          // Server closed without audio_end (expired key, network drop):
+          // let whatever is queued play out, then release the turn.
+          player.end();
         };
       })
       .catch((err: unknown) => {
@@ -171,5 +198,5 @@ export function useTts(voice = DEFAULT_VOICE) {
 
   useEffect(() => stop, [stop]);
 
-  return { speaking, error, unlock, begin, speakText, stop };
+  return { speaking, error, unlock, begin, speakText, stop, shouldMuteMic };
 }

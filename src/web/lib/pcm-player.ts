@@ -56,7 +56,7 @@ export class PcmPlayer {
     this.maybeFinish();
   }
 
-  /** Cut playback immediately. */
+  /** Cut playback immediately. Does not fire onFinished. */
   stop(): void {
     this.ended = true;
     for (const s of this.sources) {
@@ -69,6 +69,11 @@ export class PcmPlayer {
     }
     this.sources.clear();
     this.pending = 0;
+  }
+
+  /** Seconds of audio scheduled so far. */
+  get scheduledSeconds(): number {
+    return Math.max(0, this.nextStart - this.context.currentTime);
   }
 
   private maybeFinish() {
