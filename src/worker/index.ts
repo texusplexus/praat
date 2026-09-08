@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { health } from "./routes/health.ts";
 import { scenarios } from "./routes/scenarios.ts";
+import { sessions } from "./routes/sessions.ts";
 import { stt } from "./routes/stt.ts";
 import { tts } from "./routes/tts.ts";
 import { tutor } from "./routes/tutor.ts";
@@ -11,6 +12,7 @@ app.route("/health", health);
 app.route("/stt", stt);
 app.route("/tts", tts);
 app.route("/scenarios", scenarios);
+app.route("/sessions", sessions);
 app.route("/tutor", tutor);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));

@@ -8,6 +8,12 @@ export type ScenarioSummary = {
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
+export async function fetchScenarios(): Promise<ScenarioSummary[]> {
+  const res = await fetch("/api/scenarios");
+  if (!res.ok) throw new Error(`Scenarios: HTTP ${res.status}`);
+  return (await res.json()) as ScenarioSummary[];
+}
+
 export async function fetchScenario(id: string): Promise<ScenarioSummary> {
   const res = await fetch(`/api/scenarios/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(`Scenario ${id}: HTTP ${res.status}`);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchScenario, streamReply, type ChatMessage, type ScenarioSummary } from "../lib/api.ts";
+import type { LoggedTurn } from "./useSession.ts";
 
 export type Turn = ChatMessage & { pending?: boolean };
 export type TutorState = "loading" | "ready" | "replying" | "error";
@@ -9,12 +10,14 @@ export type ReplySink = {
   begin: () => { push: (text: string) => void; end: () => void };
 };
 
+export type UserSource = "voice" | "text";
+
 /**
  * Holds the conversation for one scenario. The tutor's opening line is shown
  * as the first turn but is not sent to the model; the system prompt already
  * tells the model it said it.
  */
-export function useTutor(scenarioId: string, sink?: ReplySink) {
+export function useTutor(scenarioId: string, sink?: ReplySink, onTurn?: (turn: LoggedTurn) => void) {
   const [scenario, setScenario] = useState<ScenarioSummary | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [state, setState] = useState<TutorState>("loading");
@@ -24,6 +27,8 @@ export function useTutor(scenarioId: string, sink?: ReplySink) {
   const busyRef = useRef(false);
   const sinkRef = useRef(sink);
   sinkRef.current = sink;
+  const onTurnRef = useRef(onTurn);
+  onTurnRef.current = onTurn;
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +37,7 @@ export function useTutor(scenarioId: string, sink?: ReplySink) {
         if (cancelled) return;
         setScenario(s);
         setTurns([{ role: "assistant", content: s.opening }]);
+        onTurnRef.current?.({ role: "assistant", source: "opening", content: s.opening });
         setState("ready");
       })
       .catch((err: unknown) => {
@@ -45,13 +51,14 @@ export function useTutor(scenarioId: string, sink?: ReplySink) {
   }, [scenarioId]);
 
   const runReply = useCallback(
-    async (userText: string) => {
+    async (userText: string, source: UserSource) => {
       busyRef.current = true;
       setState("replying");
       setError(null);
 
       const history = [...historyRef.current, { role: "user" as const, content: userText }];
       historyRef.current = history;
+      onTurnRef.current?.({ role: "user", source, content: userText });
       setTurns((t) => [...t, { role: "user", content: userText }, { role: "assistant", content: "", pending: true }]);
 
       let reply = "";
@@ -71,6 +78,7 @@ export function useTutor(scenarioId: string, sink?: ReplySink) {
         });
         voice?.end();
         historyRef.current = [...history, { role: "assistant", content: reply }];
+        if (reply.trim()) onTurnRef.current?.({ role: "assistant", source: "tutor", content: reply });
         setTurns((t) => t.map((turn) => (turn.pending ? { ...turn, pending: false } : turn)));
         setState("ready");
       } catch (err) {
@@ -83,7 +91,7 @@ export function useTutor(scenarioId: string, sink?: ReplySink) {
       } finally {
         busyRef.current = false;
         const queued = queueRef.current.splice(0).join(" ").trim();
-        if (queued) void runReply(queued);
+        if (queued) void runReply(queued, "voice");
       }
     },
     [scenarioId],
@@ -91,14 +99,14 @@ export function useTutor(scenarioId: string, sink?: ReplySink) {
 
   /** Send what the learner said. Utterances that arrive mid-reply are queued. */
   const send = useCallback(
-    (text: string) => {
+    (text: string, source: UserSource = "voice") => {
       const clean = text.trim();
       if (!clean) return;
       if (busyRef.current) {
         queueRef.current.push(clean);
         return;
       }
-      void runReply(clean);
+      void runReply(clean, source);
     },
     [runReply],
   );
