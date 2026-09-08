@@ -8,12 +8,16 @@ export function supabaseConfigured(env: Env): boolean {
 }
 
 function headers(env: Env, prefer: string): HeadersInit {
-  return {
-    apikey: env.SUPABASE_SERVICE_KEY,
-    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+  const key = env.SUPABASE_SERVICE_KEY;
+  const h: Record<string, string> = {
+    apikey: key,
     "Content-Type": "application/json",
     Prefer: prefer,
   };
+  // Legacy service_role keys are JWTs and also go on Authorization; the
+  // newer sb_secret_ keys must be sent on the apikey header only.
+  if (key.startsWith("eyJ")) h.Authorization = `Bearer ${key}`;
+  return h;
 }
 
 async function check(res: Response, what: string): Promise<void> {
