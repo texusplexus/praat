@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { health } from "./routes/health.ts";
+import { stt } from "./routes/stt.ts";
 
-type Bindings = Env;
-
-const app = new Hono<{ Bindings: Bindings }>().basePath("/api");
+const app = new Hono<{ Bindings: Env }>().basePath("/api");
 
 app.route("/health", health);
+app.route("/stt", stt);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-export default app;
+export default { fetch: app.fetch } satisfies ExportedHandler<Env>;
