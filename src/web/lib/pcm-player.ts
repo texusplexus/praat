@@ -1,7 +1,8 @@
 /**
  * Gapless playback of streamed 16-bit PCM. Each chunk becomes an AudioBuffer
  * scheduled right after the previous one, so audio starts as soon as the first
- * chunk lands and never waits for the whole utterance.
+ * chunk lands and never waits for the whole utterance. Buffers carry their own
+ * sample rate; the browser resamples to the context rate on playback.
  */
 export class PcmPlayer {
   private nextStart = 0;
@@ -12,6 +13,7 @@ export class PcmPlayer {
 
   constructor(
     private readonly context: AudioContext,
+    private readonly output: AudioNode,
     private readonly sampleRate: number,
     private readonly onFinished: () => void,
   ) {}
@@ -36,7 +38,7 @@ export class PcmPlayer {
 
     const source = this.context.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.context.destination);
+    source.connect(this.output);
     const startAt = Math.max(this.nextStart, this.context.currentTime + 0.02);
     source.start(startAt);
     this.nextStart = startAt + buffer.duration;
@@ -71,7 +73,7 @@ export class PcmPlayer {
     this.pending = 0;
   }
 
-  /** Seconds of audio scheduled so far. */
+  /** Seconds of audio scheduled but not yet played. */
   get scheduledSeconds(): number {
     return Math.max(0, this.nextStart - this.context.currentTime);
   }

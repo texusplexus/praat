@@ -27,8 +27,25 @@ export function useMic(onChunk: (chunk: ArrayBuffer) => void) {
   const [state, setState] = useState<MicState>("idle");
   const [error, setError] = useState<string | null>(null);
   const handles = useRef<MicHandles | null>(null);
+  const prepared = useRef<AudioContext | null>(null);
   const onChunkRef = useRef(onChunk);
   onChunkRef.current = onChunk;
+
+  /**
+   * Create the AudioContext synchronously inside a user gesture. iOS Safari
+   * only lets a context start when it is created or resumed during a tap,
+   * and `start()` runs after network awaits that may outlive that window.
+   */
+  const prepare = useCallback(() => {
+    if (handles.current || prepared.current) return;
+    try {
+      const context = new AudioContext();
+      void context.resume();
+      prepared.current = context;
+    } catch (err) {
+      console.warn("mic context could not be created early", err);
+    }
+  }, []);
 
   const stop = useCallback(async () => {
     const h = handles.current;
@@ -49,7 +66,8 @@ export function useMic(onChunk: (chunk: ArrayBuffer) => void) {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
-      const context = new AudioContext();
+      const context = prepared.current ?? new AudioContext();
+      prepared.current = null;
       // iOS Safari creates contexts suspended until a user gesture resumes them.
       if (context.state === "suspended") await context.resume();
       await context.audioWorklet.addModule(pcmWorkletUrl());
@@ -70,5 +88,5 @@ export function useMic(onChunk: (chunk: ArrayBuffer) => void) {
     }
   }, [stop]);
 
-  return { state, error, start, stop };
+  return { state, error, prepare, start, stop };
 }

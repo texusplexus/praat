@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}

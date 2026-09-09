@@ -38,7 +38,8 @@ export async function streamReply(
   });
   if (!res.ok || !res.body) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `HTTP ${res.status}`);
+    console.warn("tutor reply failed", res.status, body.error);
+    throw new Error("Die tutor kon nie antwoord nie. Probeer weer.");
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   for (;;) {

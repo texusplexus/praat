@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMic } from "../hooks/useMic.ts";
 import { useSession } from "../hooks/useSession.ts";
 import { useSonioxStt } from "../hooks/useSonioxStt.ts";
@@ -9,11 +9,14 @@ import { Conversation } from "./Conversation.tsx";
 import { MicButton } from "./MicButton.tsx";
 import { TextInput } from "./TextInput.tsx";
 
+const STUCK_TEXT = "Ek sit vas.";
+
 export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: () => void }) {
   const session = useSession(scenarioId);
   const tts = useTts();
   const tutor = useTutor(scenarioId, tts, session.logTurn);
   const stt = useSonioxStt();
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Half-duplex turn-taking: while the tutor speaks, feed Soniox silence so
   // the speaker output is never transcribed as the learner. The mute window
@@ -39,6 +42,18 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
   const active = mic.state === "recording";
   const busy = mic.state === "starting" || stt.state === "connecting";
 
+  // If the listening socket drops while the mic is open (network blip,
+  // Soniox session limit), stop the mic and say so instead of listening
+  // to nothing.
+  const stoppingRef = useRef(false);
+  useEffect(() => {
+    if (!active || stoppingRef.current) return;
+    if (stt.state === "idle" || stt.state === "error") {
+      void mic.stop();
+      if (stt.state === "idle") setNotice("Die luister-verbinding is verbreek. Druk Praat om voort te gaan.");
+    }
+  }, [active, stt.state, mic]);
+
   // The opening line is spoken on the first tap, since browsers only allow
   // audio to start from a user gesture.
   const openingSpoken = useRef(false);
@@ -50,19 +65,20 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
 
   const toggle = useCallback(async () => {
     if (active) {
+      stoppingRef.current = true;
       await mic.stop();
       stt.close();
       tts.stop();
+      stoppingRef.current = false;
       return;
     }
+    setNotice(null);
     sentCount.current = 0;
+    // Everything that needs a user gesture happens synchronously, first.
+    mic.prepare();
     // Speech output is best effort; it must never stop the mic from starting.
-    try {
-      await tts.unlock();
-      speakOpening();
-    } catch (err) {
-      console.warn("tts unlock failed", err);
-    }
+    tts.unlock().catch((err: unknown) => console.warn("tts unlock failed", err));
+    speakOpening();
     try {
       await stt.connect();
       await mic.start();
@@ -73,14 +89,18 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
 
   const sendTyped = useCallback(
     (text: string) => {
-      void tts.unlock();
+      setNotice(null);
+      tts.unlock().catch(() => undefined);
       openingSpoken.current = true; // learner has moved past the greeting
       tutor.send(text, "text");
     },
     [tts, tutor],
   );
 
+  const stuck = useCallback(() => sendTyped(STUCK_TEXT), [sendTyped]);
+
   const leave = useCallback(async () => {
+    stoppingRef.current = true;
     if (active) {
       await mic.stop();
       stt.close();
@@ -90,6 +110,16 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
   }, [active, mic, stt, tts, onLeave]);
 
   const error = mic.error ?? stt.error ?? tutor.error ?? tts.error;
+
+  const status = tts.speaking
+    ? "Die tutor praat… jou mikrofoon wag."
+    : tutor.state === "replying"
+      ? "Die tutor dink…"
+      : active
+        ? "Ek luister. Praat gerus."
+        : busy
+          ? "Maak reg…"
+          : "Druk Praat om te gesels, of tik hieronder.";
 
   return (
     <>
@@ -113,20 +143,30 @@ export function Session({ scenarioId, onLeave }: { scenarioId: string; onLeave: 
 
       <Conversation turns={tutor.turns} live={liveText(stt.transcript)} />
 
-      {error && (
+      {(error || notice) && (
         <p role="alert" className="text-rose-300 text-sm text-center max-w-md">
-          {error}
+          {error ?? notice}
         </p>
       )}
 
-      {tts.speaking && (
-        <p className="text-emerald-300/80 text-xs" aria-live="polite">
-          Die tutor praat… jou mikrofoon wag.
-        </p>
-      )}
+      <p className="text-xs text-slate-400" aria-live="polite">
+        {status}
+      </p>
 
       <TextInput onSend={sendTyped} disabled={tutor.state === "loading"} />
-      <MicButton active={active} busy={busy} onClick={() => void toggle()} />
+
+      <div className="flex items-center gap-4">
+        <span className="w-24" aria-hidden="true" />
+        <MicButton active={active} busy={busy} onClick={() => void toggle()} />
+        <button
+          type="button"
+          onClick={stuck}
+          disabled={tutor.state === "loading" || tutor.state === "replying"}
+          className="w-24 rounded-xl bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+        >
+          Ek sit vas
+        </button>
+      </div>
     </>
   );
 }

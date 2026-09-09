@@ -38,6 +38,13 @@ test("buildSystemPrompt keeps principles first and includes role, body and openi
   assert.match(prompt, /"Hallo! Sit gerus\."/);
 });
 
+test("system prompt tells the tutor how to handle 'Ek sit vas'", () => {
+  const prompt = buildSystemPrompt(parseScenario(sample));
+  assert.match(prompt, /"Ek sit vas"/);
+  assert.match(prompt, /begin in Engels/);
+  assert.match(prompt, /voorbeeldsin/);
+});
+
 test("buildSystemPrompt is deterministic for the same scenario", () => {
   const s = parseScenario(sample);
   assert.equal(buildSystemPrompt(s), buildSystemPrompt(s));

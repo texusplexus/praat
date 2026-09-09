@@ -17,7 +17,7 @@ type SonioxResponse = {
 async function fetchTemporaryKey(): Promise<string> {
   const res = await fetch("/api/stt/token", { method: "POST" });
   const body = (await res.json()) as { apiKey?: string; error?: string };
-  if (!res.ok || !body.apiKey) throw new Error(body.error ?? `HTTP ${res.status}`);
+  if (!res.ok || !body.apiKey) throw new Error("Kon nie begin luister nie. Probeer weer.");
   return body.apiKey;
 }
 
@@ -94,7 +94,7 @@ export function useSonioxStt() {
       };
 
       ws.onerror = () => {
-        setError("Could not reach the speech service");
+        setError("Kon nie die luisterdiens bereik nie. Probeer weer.");
         setState("error");
         reject(new Error("WebSocket error"));
       };

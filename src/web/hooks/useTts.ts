@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getAudioOutput } from "../lib/audio-output.ts";
 import { PcmPlayer } from "../lib/pcm-player.ts";
 
 const SONIOX_TTS_WS = "wss://tts-rt.soniox.com/tts-websocket";
@@ -17,7 +18,7 @@ type TtsMessage = {
 async function fetchTtsKey(): Promise<string> {
   const res = await fetch("/api/tts/token", { method: "POST" });
   const body = (await res.json()) as { apiKey?: string; error?: string };
-  if (!res.ok || !body.apiKey) throw new Error(body.error ?? `HTTP ${res.status}`);
+  if (!res.ok || !body.apiKey) throw new Error("Die stem is nie beskikbaar nie; lees gerus die teks.");
   return body.apiKey;
 }
 
@@ -41,7 +42,6 @@ export type Utterance = {
 export function useTts(voice = DEFAULT_VOICE) {
   const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const contextRef = useRef<AudioContext | null>(null);
   const currentRef = useRef<{ ws: WebSocket; player: PcmPlayer } | null>(null);
   // Wall-clock deadline until which the learner's mic should be muted. Using
   // real time (not AudioContext time) means a suspended or stalled context
@@ -49,10 +49,17 @@ export function useTts(voice = DEFAULT_VOICE) {
   const muteUntilRef = useRef(0);
   const shouldMuteMic = useCallback(() => performance.now() < muteUntilRef.current, []);
 
-  /** Must be called from a user gesture at least once (iOS Safari). */
-  const unlock = useCallback(async () => {
-    if (!contextRef.current) contextRef.current = new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
-    if (contextRef.current.state === "suspended") await contextRef.current.resume();
+  /**
+   * Create and start the output path. The synchronous part must run inside a
+   * user gesture the first time (iOS Safari); the returned promise can be
+   * awaited or ignored.
+   */
+  const unlock = useCallback((): Promise<void> => {
+    try {
+      return getAudioOutput().resume();
+    } catch (err) {
+      return Promise.reject(err instanceof Error ? err : new Error(String(err)));
+    }
   }, []);
 
   const stop = useCallback(() => {
@@ -72,11 +79,17 @@ export function useTts(voice = DEFAULT_VOICE) {
   const begin = useCallback((): Utterance => {
     stop();
     setError(null);
-    setSpeaking(true);
 
-    const context = contextRef.current ?? new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
-    contextRef.current = context;
-    if (context.state === "suspended") void context.resume();
+    let output;
+    try {
+      output = getAudioOutput();
+    } catch (err) {
+      setError("Klank is nie beskikbaar op hierdie toestel nie; lees gerus die teks.");
+      console.warn("audio output unavailable", err);
+      return { push: () => undefined, end: () => undefined };
+    }
+    void output.resume();
+    setSpeaking(true);
 
     const streamId = `u-${Date.now()}`;
     let queue: string[] = [];
@@ -88,16 +101,14 @@ export function useTts(voice = DEFAULT_VOICE) {
     muteUntilRef.current = performance.now() + 6_000;
 
     const finish = () => {
+      clearTimeout(watchdog);
       if (currentRef.current?.player === player) {
         currentRef.current = null;
         muteUntilRef.current = 0;
         setSpeaking(false);
       }
     };
-    const player = new PcmPlayer(context, TTS_SAMPLE_RATE, () => {
-      clearTimeout(watchdog);
-      finish();
-    });
+    const player = new PcmPlayer(output.context, output.node, TTS_SAMPLE_RATE, finish);
     // Utterances are a few sentences; if playback has not finished well
     // within the 2 minute Soniox cap, something is stuck: release the turn.
     const watchdog = setTimeout(() => {
@@ -140,7 +151,8 @@ export function useTts(voice = DEFAULT_VOICE) {
         socket.onmessage = (event: MessageEvent<string>) => {
           const msg = JSON.parse(event.data) as TtsMessage;
           if (msg.error_code !== undefined) {
-            setError(`Stem: ${msg.error_message ?? msg.error_code}`);
+            console.warn("tts error", msg.error_code, msg.error_message);
+            setError("Die stem het gehaper; lees gerus die teks.");
             player.stop();
             finish();
             socket.close();
@@ -156,7 +168,7 @@ export function useTts(voice = DEFAULT_VOICE) {
           }
         };
         socket.onerror = () => {
-          setError("Kon nie die stem laai nie");
+          setError("Kon nie die stem laai nie; lees gerus die teks.");
           player.stop();
           finish();
         };

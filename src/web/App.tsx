@@ -7,7 +7,7 @@ export function App() {
   const [scenario, setScenario] = useState<ScenarioSummary | null>(null);
 
   return (
-    <main className="h-dvh bg-slate-900 text-slate-100 flex flex-col items-center gap-4 p-4 sm:p-6">
+    <main className="h-dvh bg-slate-900 text-slate-100 flex flex-col items-center gap-4 p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
       {scenario ? (
         // Keyed so every hook remounts with a clean slate per scenario.
         <Session key={scenario.id} scenarioId={scenario.id} onLeave={() => setScenario(null)} />

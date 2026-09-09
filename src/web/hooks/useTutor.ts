@@ -83,7 +83,13 @@ export function useTutor(scenarioId: string, sink?: ReplySink, onTurn?: (turn: L
         setState("ready");
       } catch (err) {
         voice?.end();
-        setError(err instanceof Error ? err.message : String(err));
+        setError(
+          err instanceof TypeError
+            ? "Geen verbinding nie. Kyk na jou internet en probeer weer."
+            : err instanceof Error
+              ? err.message
+              : String(err),
+        );
         // Drop the failed exchange so the learner can simply try again.
         historyRef.current = history.slice(0, -1);
         setTurns((t) => t.filter((turn) => !turn.pending));
